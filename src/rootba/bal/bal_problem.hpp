@@ -68,10 +68,31 @@ class BalProblem {
   using VecX = Eigen::Matrix<Scalar, Eigen::Dynamic, 1>;
   using SE3 = Sophus::SE3<Scalar>;
   using SO3 = Sophus::SO3<Scalar>;
+  using Matrix3 = Eigen::Matrix<Scalar, 3, 3>;
 
   static constexpr int CAM_STATE_SIZE = 10;
 
   using CameraModel = basalt::BalCamera<Scalar>;
+  
+  //void compare_with_gt(std::vector<SE3> camera_pose, std::vector<Vec3> lm_positon) const;
+  void compare_with_gt() const;
+  void load_simulation_gt(const std::string& path);
+
+
+    //template<typename Scalar>//TODO
+  Scalar ComputeRotationMagnitude(Matrix3 &delta_R) const;
+  //template<typename Scalar>
+  Scalar ComputeRotationMagnitude(Eigen::Quaternion<Scalar> &delta_q) const;
+  //template<typename Scalar>
+  Scalar ComputeRotationMagnitude(Vec3 &delta_r) const;
+  std::vector<SE3> camera_pose_gt;
+  std::vector<Vec3> lm_position_gt;
+
+  /* 计算位置误差的量级，输出单位等于输入单位 */
+  //template<typename Scalar>
+  Scalar ComputeTranslationMagnitude(Vec3 &delta_t) const{
+      return delta_t.norm();
+  }
 
   struct Observation {
     Vec2 pos;
@@ -97,7 +118,9 @@ class BalProblem {
     void apply_inc_pose(const Vec6& inc) { inc_pose(inc, T_c_w); }
 
     inline static void inc_pose(const Vec6& inc, SE3& T_c_w) {
+      //LOG(INFO)<<"Translation before update:\n"<< T_c_w.translation();
       T_c_w = Sophus::se3_expd(inc) * T_c_w;
+      //LOG(INFO)<<"Translation after update:\n"<< T_c_w.translation();
     }
 
     void apply_inc_intrinsics(const Vec3& inc) {
@@ -132,6 +155,19 @@ class BalProblem {
     CameraModel intrinsics_backup_;
   };
 
+  struct Frame {
+    Frame(Eigen::Matrix<Scalar, 3, 3> R, Eigen::Matrix<Scalar, 3, 1> t) : Rcw(R), qcw(R), tcw(t) {};
+    Frame(Eigen::Quaternion<Scalar> R, Eigen::Matrix<Scalar, 3, 1> t) : qcw(R), tcw(t) {};
+
+    //TODO: add coorindate transformation
+    Eigen::Matrix<Scalar, 3, 3> Rcw;
+    Eigen::Quaternion<Scalar> qcw;
+    Eigen::Matrix<Scalar, 3, 1> tcw;
+    Eigen::Quaternion<Scalar>  qcw_noisy;
+     Eigen::Matrix<Scalar, 3, 1> tcw_noisy;
+
+};
+
   struct Landmark {
     Vec3 p_w;                             // point position in world coordinates
     std::map<FrameIdx, Observation> obs;  // list of frame indices
@@ -163,6 +199,9 @@ class BalProblem {
 
   void load_bal(const std::string& path);
   void load_bundler(const std::string& path);
+
+  void load_simulation(const std::string& path);
+  void load_simulation_gt(const std::string& path, std::vector<SE3>& camera_pose_gt, std::vector<Vec3>& lm_position_gt) const;
 
   bool load_rootba(const std::string& path);
   bool save_rootba(const std::string& path);

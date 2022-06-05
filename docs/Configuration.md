@@ -46,7 +46,7 @@ $ ./bin/bal --help
 Solve BAL problem with solver determined by config.
 
 SYNOPSIS:
-        bal [-C <DIR>] [--config <PATH>] [--dump-config]  [--input <STR>] [--input-type <ENUM>]
+        bal [-C <DIR>] [--config <PATH>] [--dump-config]  [--input <STR>] [--groundtruth <STR>][--input-type <ENUM>]
             [--save-output|--no-save-output] [--output-optimized-path <STR>]
             [--normalize|--no-normalize] [--normalization-scale <FLOAT>] [--rotation-sigma <FLOAT>]
             [--translation-sigma <FLOAT>] [--point-sigma <FLOAT>] [--random-seed <INT>]
@@ -79,8 +79,9 @@ OPTIONS:
         dataset options
 
             --input
-            <STR>     input dataset file to load
-
+            <STR>     input dataset file to load\
+            --groundtruth
+            <STR>     ground truth input
             --input-type
             <ENUM>    type of dataset to load
                       (possible values: [AUTO, ROOTBA, BAL, BUNDLER])

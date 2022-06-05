@@ -126,6 +126,9 @@ BalDatasetOptions::DatasetType autodetect_input_type(const std::string& path) {
     return BalDatasetOptions::DatasetType::ROOTBA;
   } else if (std::string::npos != filename.find("bundle")) {
     return BalDatasetOptions::DatasetType::BUNDLER;
+  }
+  else if (std::string::npos != filename.find("simulation")) {
+    return BalDatasetOptions::DatasetType::SIMULATION;
   } else {
     // default to BAL
     return BalDatasetOptions::DatasetType::BAL;
@@ -278,6 +281,226 @@ void BalProblem<Scalar>::load_bal(const std::string& path) {
 
   std::fclose(fptr);
 }
+
+template <typename Scalar>
+void BalProblem<Scalar>::load_simulation(const std::string& path) {
+  FILE* fptr = std::fopen(path.c_str(), "r");
+  if (fptr == nullptr) {
+    LOG(FATAL) << "Could not open '{}'"_format(path);
+  };
+
+  LOG(INFO) << "Load data from simulation data\n";
+
+  try {
+    // parse header
+    int num_cams;
+    int num_lms;
+    int num_obs;
+    fscan_or_throw(fptr, "%d", &num_cams);
+    fscan_or_throw(fptr, "%d", &num_lms);
+    fscan_or_throw(fptr, "%d", &num_obs);
+    CHECK_GT(num_cams, 0);
+    CHECK_GT(num_lms, 0);
+    CHECK_GT(num_obs, 0);
+
+    // clear memory and re-allocate
+    if (cameras_.capacity() > unsigned_cast(num_cams)) {
+      decltype(cameras_)().swap(cameras_);
+    }
+    if (landmarks_.capacity() > unsigned_cast(num_lms)) {
+      decltype(landmarks_)().swap(landmarks_);
+    }
+    cameras_.clear();
+    landmarks_.clear();
+    cameras_.resize(num_cams);
+    landmarks_.resize(num_lms);
+
+    // parse observations
+    for (int i = 0; i < num_obs; ++i) {
+      int cam_idx;
+      int lm_idx;
+      fscan_or_throw(fptr, "%d", &cam_idx);
+      fscan_or_throw(fptr, "%d", &lm_idx);
+      CHECK_GE(cam_idx, 0);
+      CHECK_LT(cam_idx, num_cams);
+      CHECK_GE(lm_idx, 0);
+      CHECK_LT(lm_idx, num_lms);
+
+      auto [obs, inserted] = landmarks_.at(lm_idx).obs.try_emplace(cam_idx);
+      CHECK(inserted) << "Invalid file '{}'"_format(path);
+      Eigen::Matrix<double, 2, 1> posd;
+      fscan_or_throw(fptr, posd);
+      obs->second.pos = posd.cast<Scalar>();
+      //std::cout << "Obs: "<<posd(0)<<", "<< posd(1)<<std::endl;
+
+      // For the camera frame we assume the positive z axis pointing
+      // forward in view direction and in the image, y is poiting down, x to the
+      // right. In the original BAL formulation, the camera points in negative z
+      // axis, y is up in the image. Thus when loading the data, we invert the y
+      // and z camera axes (y also in the image) in the perspective projection,
+      // we don't have the "minus" like in the original Snavely model.
+
+      // invert y axis
+    }
+
+    // parse camera parameters
+    for (int i = 0; i < num_cams; ++i) {
+      Vec9 params;
+      Eigen::Matrix<double, 9, 1> paramsd;
+      fscan_or_throw(fptr, paramsd);
+      params = paramsd.cast<Scalar>();
+
+      auto& cam = cameras_.at(i);
+      cam.T_c_w.so3() =  SO3::exp(params.template head<3>());
+      //std::cout <<"so3: "<<params.template head<3>()<<std::endl;
+      cam.T_c_w.translation() = params.template segment<3>(3);
+      //Vec3 t_cw = cam.T_c_w.translation();
+      // std::cout <<"translation: "<<params.template segment<3>(3)<<std::endl;
+      // std::cout <<"t_cw: "<<t_cw<<std::endl;
+
+      cam.intrinsics = CameraModel(params.template tail<3>());
+    }
+
+    // parse landmark parameters
+    for (int i = 0; i < num_lms; ++i) {
+      Eigen::Matrix<double, 3, 1> p_wd;
+      fscan_or_throw(fptr, p_wd);
+      landmarks_.at(i).p_w = p_wd.cast<Scalar>();
+      // std::cout<<"lm origin: "<< landmarks_.at(i).p_w <<std::endl;
+    }
+  } catch (const std::exception& e) {
+    LOG(FATAL) << "Failed to parse '{}'"_format(path);
+  }
+
+    LOG(INFO)
+        << "Loaded SIMULATION problem ({} cams, {} lms, {} obs) from '{}'"_format(
+               num_cameras(), num_landmarks(), num_observations(), path);
+
+  // Current implementation uses int to compute state vector indices
+  CHECK_LT(num_cameras(), std::numeric_limits<int>::max() / CAM_STATE_SIZE);
+
+  std::fclose(fptr);
+}
+
+template <typename Scalar>
+Scalar BalProblem<Scalar>::ComputeRotationMagnitude(Matrix3 &delta_R) const{
+      Scalar magnitude = std::fabs(std::acos(
+          (delta_R.trace() - Scalar(1.0)) / Scalar(2.0)
+      ));
+      return magnitude;
+  }
+
+template <typename Scalar>
+Scalar BalProblem<Scalar>::ComputeRotationMagnitude(Eigen::Quaternion<Scalar> &delta_q) const{
+      Matrix3 delta_R(delta_q);
+      return ComputeRotationMagnitude(delta_R);
+  }
+
+template <typename Scalar>
+Scalar BalProblem<Scalar>::ComputeRotationMagnitude(Vec3 &delta_r) const {
+      Eigen::Quaternion<Scalar> delta_q(
+          Scalar(1.0), 
+          Scalar(0.5) * delta_r(0),
+          Scalar(0.5) * delta_r(1),
+          Scalar(0.5) * delta_r(2));
+      return ComputeRotationMagnitude(delta_q);
+  }
+
+template <typename Scalar>
+void BalProblem<Scalar>::compare_with_gt() const {
+  //std::cout << "Hello gt\n";
+  //load gt
+
+
+  // iterate over lms and cameras
+  std::cout << "Cameras size: "<<cameras_.size()<<std::endl;
+  std::cout << "Landmarks size: "<<landmarks_.size()<<std::endl;
+  Scalar residual_t = 0;
+  Scalar residual_R = 0;
+  for (size_t i = 0; i <cameras_.size(); i ++) {
+    Vec3 t_cw = cameras_[i].T_c_w.translation();
+    Vec3 t_cw_gt = camera_pose_gt[i].translation();
+    Vec3 diff_t = t_cw - t_cw_gt;
+    // std::cout<<"camera t_cw:\n "<<t_cw<<std::endl;
+    // std::cout<<"camera t_cw_gt:\n "<<t_cw_gt<<std::endl;
+    Eigen::Quaternion<Scalar> q(cameras_[i].T_c_w.rotationMatrix());
+    Eigen::Quaternion<Scalar> q_gt(camera_pose_gt[i].rotationMatrix());
+    Eigen::Quaternion<Scalar> diff_q = q.inverse() * q_gt;
+
+    residual_R += ComputeRotationMagnitude(diff_q);
+    residual_t += ComputeTranslationMagnitude(diff_t);
+    }
+    std::cout << "  Average camera atitude residual for RootBA is \t" << residual_R / Scalar(cameras_.size()) << " rad\n";
+    std::cout << "  Average camera position residual for RootBA is \t" << residual_t / Scalar(cameras_.size()) << " m" << std::endl;
+
+  Scalar residual = 0;
+  for (size_t i =0; i< landmarks_.size();i++)
+  {
+    Vec3 t_cw = landmarks_[i].p_w;
+    // std::cout<<"Landmark t_cw: "<<t_cw<<std::endl;
+    // std::cout<<"Landmark t_cw_gt: "<<lm_position_gt[i]<<std::endl;
+    Vec3 diff = t_cw - lm_position_gt[i];
+    residual += ComputeTranslationMagnitude(diff);
+  
+  }
+  std::cout << "  Average landmark position residual for rootBA is \t" << residual / landmarks_.size() << " m" << std::endl;
+
+}
+
+//if we need to cast it ?
+template <typename Scalar>
+void BalProblem<Scalar>::load_simulation_gt(const std::string& path) {
+  FILE* fptr = std::fopen(path.c_str(), "r");
+  if (fptr == nullptr) {
+    LOG(FATAL) << "Could not open '{}'"_format(path);
+  };
+
+  LOG(INFO) << "Load data from simulation data\n";
+
+  try {
+    // parse header
+    int num_cams;
+    int num_lms;
+    fscan_or_throw(fptr, "%d", &num_cams);
+    fscan_or_throw(fptr, "%d", &num_lms);
+    CHECK_GT(num_cams, 0);
+    CHECK_GT(num_lms, 0);
+
+    // parse camera parameters
+    for (int i = 0; i < num_cams; ++i) {
+      Vec9 params;
+      Eigen::Matrix<double, 9, 1> paramsd;
+      fscan_or_throw(fptr, paramsd);
+      params = paramsd.cast<Scalar>();
+
+      SE3 pose_gt;
+      pose_gt.so3() = SO3::exp(params.template head<3>());
+      pose_gt.translation() = params.template segment<3>(3);
+      camera_pose_gt.push_back(pose_gt);
+    
+    }
+
+    // parse landmark parameters
+    for (int i = 0; i < num_lms; ++i) {
+      Eigen::Matrix<double, 3, 1> p_wd;
+      fscan_or_throw(fptr, p_wd);
+      auto p_w = p_wd.cast<Scalar>();
+      lm_position_gt.emplace_back(p_w);
+    }
+  } catch (const std::exception& e) {
+    LOG(FATAL) << "Failed to parse '{}'"_format(path);
+  }
+
+    LOG(INFO)
+        << "Loaded SIMULATION ground truth ({} cams, {} lms) from '{}'"_format(
+               num_cameras(), num_landmarks(), num_observations(), path);
+
+  // Current implementation uses int to compute state vector indices
+
+  std::fclose(fptr);
+}
+
+
 
 template <typename Scalar>
 void BalProblem<Scalar>::load_bundler(const std::string& path) {
@@ -676,6 +899,7 @@ BalProblem<Scalar> load_normalized_bal_problem(
         wise_enum::to_string(input_type));
   }
 
+  bool is_simulated = false;
   // load dataset as double
   BalProblem<double> bal_problem;
   bal_problem.set_quiet(options.quiet);
@@ -689,6 +913,13 @@ BalProblem<Scalar> load_normalized_bal_problem(
     case BalDatasetOptions::DatasetType::BUNDLER:
       bal_problem.load_bundler(options.input);
       break;
+    case BalDatasetOptions::DatasetType::SIMULATION:
+      bal_problem.load_simulation(options.input);
+      std::cout<< "Load simlutation done\n";
+      bal_problem.load_simulation_gt(options.groundtruth);
+      std::cout<<"load groundtruth done\n";
+      is_simulated = true;
+      break;
     default:
       LOG(FATAL) << "unreachable";
   }
@@ -697,17 +928,19 @@ BalProblem<Scalar> load_normalized_bal_problem(
 
   // normalize to fixed scale and center (as double, since there are some
   // overflow issues with float for large problems)
-  if (options.normalize) {
+  if (options.normalize&&(!is_simulated)) {
     bal_problem.normalize(options.normalization_scale);
   }
 
   // perturb state if sigmas are positive
-  bal_problem.perturb(options.rotation_sigma, options.translation_sigma,
+  if(!is_simulated)
+  {
+    bal_problem.perturb(options.rotation_sigma, options.translation_sigma,
                       options.point_sigma, options.random_seed);
-
-  // Filter observations of points closer than threshold to the camera
-  bal_problem.filter_obs(options.init_depth_threshold);
-
+    // Filter observations of points closer than threshold to the camera
+    bal_problem.filter_obs(options.init_depth_threshold);
+  }
+  
   // convert to Scalar if needed
   BalProblem<Scalar> res;
   if constexpr (std::is_same_v<Scalar, double>) {

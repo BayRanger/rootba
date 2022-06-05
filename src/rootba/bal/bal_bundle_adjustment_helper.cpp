@@ -103,7 +103,8 @@ void BalBundleAdjustmentHelper<Scalar>::compute_error(
   tbb::blocked_range<int> range(0, bal_problem.num_landmarks());
   ResidualInfoAccu error_accu = tbb::parallel_reduce(
       range, ResidualInfoAccu(), body, ResidualInfoAccu::join);
-
+         LOG(INFO)<<"resiudal sum all  "<<error_accu.info.all.residual_sum<<std::endl;
+         LOG(INFO)<<"resiudal sum valid  "<<error_accu.info.valid.residual_sum<<std::endl;
   // output accumulated error
   error = error_accu.info;
 }

@@ -86,6 +86,7 @@ bool parse_bal_app_arguments(const std::string& application_summary, int argc,
     if (!application_summary.empty()) {
       std::cout << application_summary << "\n\n";
     }
+
     std::cout << "SYNOPSIS:\n"
               << usage_lines(cli, executable_name) << "\n\n"
               << "OPTIONS:\n"
@@ -112,6 +113,7 @@ bool parse_bal_app_arguments(const std::string& application_summary, int argc,
 
   // override config with cli
   CHECK(options.dataset._load(parsed_dataset_options));
+std::cout<<"HHHHHHHHHHHHHHHHHHHH\n";
   CHECK(options.solver._load(parsed_solver_options));
 
   // print config

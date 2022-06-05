@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <set>
 #include <thread>
+ #include <chrono>
 
 #include <magic_enum/magic_enum.hpp>
 
@@ -141,13 +142,9 @@ void finish_solve(SolverSummary& summary, const SolverOptions& options) {
         it.jacobian_evaluation_time_in_seconds;
   }
 
-  // memory & threads
-  {
-    MemoryInfo mi;
-    if (get_memory_info(mi)) {
-      summary.resident_memory_peak = mi.resident_memory_peak;
-    }
-  }
+
+
+  std::cout<<"HHHHHHHHHHH\n";
 
   // FIXME: this doesn't respect cgroup cpusets like on slurm
   // (TbbConcurrencyObserver does seem to work as expected though, and create
@@ -262,7 +259,13 @@ void optimize_lm_ours(BalProblem<Scalar>& bal_problem,
   const Scalar max_lambda(1.0 / solver_options.min_trust_region_radius);
   const Scalar vee_factor(solver_options.vee_factor);
   const Scalar initial_vee(solver_options.initial_vee);
+    MemoryInfo mem_info;
 
+        get_memory_info(mem_info);
+        
+        std::cout<<"--------------------------"<<std::endl;
+        std::cout << "init mem : " << (mem_info.resident_memory >>20) << " MB." << std::endl;
+        auto init_mem  = mem_info.resident_memory >>20;
   const int max_lm_iter = solver_options.max_num_iterations;
 
   Scalar lambda(1.0 / solver_options.initial_trust_region_radius);
@@ -315,7 +318,11 @@ void optimize_lm_ours(BalProblem<Scalar>& bal_problem,
     }
 
     linearizor->linearize();
-
+    if (get_memory_info(mem_info))
+    {
+        std::cout<<"--------------------------"<<std::endl;
+        std::cout << "mem : " << (mem_info.resident_memory >>20)-  init_mem << " MB." << std::endl;
+        }
     std::cout << "\t[INFO] Stage 1 time {:.3f}s.\n"_format(
         it_summary.stage1_time_in_seconds);
 
@@ -522,6 +529,14 @@ void optimize_lm_ours(BalProblem<Scalar>& bal_problem,
 
   finish_solve(summary, solver_options);
 
+  //const std::string gt_file = "/home/uisee/github/BASolver_backup/rootBA/simulation_groundtruth.txt";
+  // std::vector<SE3> camera_pose_gt;
+  // std::vector<Vec3> lm_positon_gt;
+  //bal_problem.load_simulation_gt(gt_file);
+  //compare_with_gt(camera_pose_gt, lm_positon_gt);
+  bal_problem.compare_with_gt();
+  //bal_problem.compare_with_gt(camera_pose_gt, lm_positon_gt);
+
   std::cout << "Final Cost: {}\n"_format(error_summary_oneline(
       summary.final_cost, solver_options.use_projection_validity_check()));
   std::cout << "{}: {}\n"_format(
@@ -537,8 +552,15 @@ void bundle_adjust_manual(BalProblem<Scalar>& bal_problem,
                           SolverSummary* output_solver_summary,
                           PipelineTimingSummary* output_timing_summary) {
   OwnOrReference<SolverSummary> solver_summary(output_solver_summary);
-  optimize_lm_ours(bal_problem, solver_options, *solver_summary);
 
+        
+    auto t_start= std::chrono::high_resolution_clock::now();
+    optimize_lm_ours(bal_problem, solver_options, *solver_summary);
+    auto t_end = std::chrono::high_resolution_clock::now();
+ double elapsed_time_ms = std::chrono::duration<double, std::milli>(t_end-t_start).count();
+ std::cout << "The solve time of BA solver "<< elapsed_time_ms<<std::endl;
+
+  
   if (output_timing_summary) {
     output_timing_summary->optimize_time =
         solver_summary->total_time_in_seconds;

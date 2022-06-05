@@ -42,11 +42,12 @@ namespace rootba {
 /// Options related to loading a dataset and preprocessing it before
 /// optimization (normalization, state perturbations, etc)
 struct BalDatasetOptions : public VisitableOptions<BalDatasetOptions> {
-  WISE_ENUM_CLASS_MEMBER(DatasetType, (AUTO, 0), ROOTBA, BAL, BUNDLER);
+  WISE_ENUM_CLASS_MEMBER(DatasetType, (AUTO, 0), ROOTBA, BAL, BUNDLER, SIMULATION);
 
   BEGIN_VISITABLES(BalDatasetOptions);
 
   VISITABLE_META(std::string, input, help("input dataset file to load"));
+  VISITABLE_META(std::string, groundtruth, help("input groundtruth file to load"));
   VISITABLE_META(DatasetType, input_type,
                  init(DatasetType::AUTO).help("type of dataset to load"));
 
